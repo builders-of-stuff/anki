@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Button } from '$lib/components/ui/button/index.js';
+	import { Button, buttonVariants } from '$lib/components/ui/button/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import * as Card from '$lib/components/ui/card/index.js';
 	import { store } from '$lib/store.svelte';
 	import type { Deck, Card as CardType } from '$lib/types';
 	import { X } from 'lucide-svelte';
+	import ThemeToggle from '$lib/components/theme-toggle.svelte';
 
 	let open = $state(false);
 	let deckName = $state('');
@@ -17,6 +18,26 @@
 	let newCardFront = $state('');
 	let newCardBack = $state('');
 	let newCardNotes = $state('');
+	let shuffledCards = $state<CardType[]>([]);
+
+	$effect(() => {
+		const handleKeydown = (e: KeyboardEvent) => {
+			if (selectedDeckId && e.key === 'Enter') {
+				e.preventDefault();
+				if (showBack) {
+					nextCard();
+				} else {
+					showBack = true;
+				}
+			}
+		};
+
+		window.addEventListener('keydown', handleKeydown);
+
+		return () => {
+			window.removeEventListener('keydown', handleKeydown);
+		};
+	});
 
 	const createDeck = () => {
 		if (deckName.trim()) {
@@ -61,20 +82,36 @@
 		store.decks = store.decks.filter((d) => d.id !== deckId);
 		if (selectedDeckId === deckId) {
 			selectedDeckId = null;
+			shuffledCards = [];
 		}
+	};
+
+	const shuffleArray = (array: CardType[]) => {
+		const newArray = [...array];
+		for (let i = newArray.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+		}
+		return newArray;
 	};
 
 	const selectDeck = (deckId: string) => {
 		selectedDeckId = deckId;
+		const deck = store.decks.find((d) => d.id === deckId);
+		if (deck) {
+			shuffledCards = shuffleArray(deck.cards);
+		} else {
+			shuffledCards = [];
+		}
 		currentCardIndex = 0;
 		showBack = false;
 	};
 
 	const selectedDeck = $derived(store.decks.find((d) => d.id === selectedDeckId));
-	const currentCard = $derived(selectedDeck?.cards[currentCardIndex]);
+	const currentCard = $derived(shuffledCards[currentCardIndex]);
 
 	const nextCard = () => {
-		if (selectedDeck && currentCardIndex < selectedDeck.cards.length - 1) {
+		if (currentCardIndex < shuffledCards.length - 1) {
 			currentCardIndex++;
 			showBack = false;
 		}
@@ -94,11 +131,14 @@
 			const reader = new FileReader();
 			reader.onload = (e) => {
 				const text = e.target?.result as string;
-				const lines = text.split('\n');
+				const lines = text.split('\n').filter((line) => line.trim() !== '');
 				const newCards = lines.reduce((acc, line) => {
-					const [front, back, notes] = line.split(',');
-					if (front && back) {
-						acc.push({ id: crypto.randomUUID(), front, back, notes: notes || '' });
+					const parts = line.split(',');
+					if (parts.length >= 2) {
+						const front = parts.shift()!;
+						const back = parts.shift()!;
+						const notes = parts.join(',');
+						acc.push({ id: crypto.randomUUID(), front, back, notes });
 					}
 					return acc;
 				}, [] as CardType[]);
@@ -121,21 +161,24 @@
 <div class="container mx-auto p-4">
 	<header class="mb-4 flex items-center justify-between">
 		<h1 class="text-2xl font-bold">Anki Clone</h1>
-		<Dialog.Root bind:open>
-			<Dialog.Trigger>Create Deck</Dialog.Trigger>
-			<Dialog.Content class="sm:max-w-[425px]">
-				<Dialog.Header>
-					<Dialog.Title>Create New Deck</Dialog.Title>
-					<Dialog.Description>Give your new deck a name.</Dialog.Description>
-				</Dialog.Header>
-				<div class="grid gap-4 py-4">
-					<Input placeholder="Deck Name" bind:value={deckName} />
-				</div>
-				<Dialog.Footer>
-					<Button type="submit" onclick={createDeck}>Create</Button>
-				</Dialog.Footer>
-			</Dialog.Content>
-		</Dialog.Root>
+		<div class="flex items-center gap-2">
+			<Dialog.Root bind:open>
+				<Dialog.Trigger class={buttonVariants({ variant: 'outline' })}>Create Deck</Dialog.Trigger>
+				<Dialog.Content class="sm:max-w-[425px]">
+					<Dialog.Header>
+						<Dialog.Title>Create New Deck</Dialog.Title>
+						<Dialog.Description>Give your new deck a name.</Dialog.Description>
+					</Dialog.Header>
+					<div class="grid gap-4 py-4">
+						<Input placeholder="Deck Name" bind:value={deckName} />
+					</div>
+					<Dialog.Footer>
+						<Button type="submit" onclick={createDeck}>Create</Button>
+					</Dialog.Footer>
+				</Dialog.Content>
+			</Dialog.Root>
+			<ThemeToggle />
+		</div>
 	</header>
 
 	<div class="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -163,7 +206,9 @@
 					<h2 class="mb-2 text-xl font-semibold">{selectedDeck.name}</h2>
 					<div class="mb-4 flex gap-2">
 						<Dialog.Root bind:open={addCardOpen}>
-							<Dialog.Trigger>Add Card</Dialog.Trigger>
+							<Dialog.Trigger class={buttonVariants({ variant: 'outline' })}
+								>Add Card</Dialog.Trigger
+							>
 							<Dialog.Content>
 								<Dialog.Header>
 									<Dialog.Title>Add New Card</Dialog.Title>
@@ -180,7 +225,9 @@
 							</Dialog.Content>
 						</Dialog.Root>
 						<Dialog.Root bind:open={importOpen}>
-							<Dialog.Trigger>Import CSV</Dialog.Trigger>
+							<Dialog.Trigger class={buttonVariants({ variant: 'outline' })}
+								>Import CSV</Dialog.Trigger
+							>
 							<Dialog.Content>
 								<Dialog.Header>
 									<Dialog.Title>Import from CSV</Dialog.Title>
@@ -209,9 +256,8 @@
 						</div>
 						<div class="mt-4 flex justify-center gap-4">
 							<Button onclick={prevCard} disabled={currentCardIndex === 0}>Previous</Button>
-							<Button
-								onclick={nextCard}
-								disabled={currentCardIndex === selectedDeck.cards.length - 1}>Next</Button
+							<Button onclick={nextCard} disabled={currentCardIndex === shuffledCards.length - 1}
+								>Next</Button
 							>
 						</div>
 					{:else}
